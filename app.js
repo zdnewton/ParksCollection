@@ -1,6 +1,7 @@
 const express = require('express');
 const { Client } = require('pg');
 const path = require('path');
+const bodyParser = require('body-parser');
 
 const client = new Client({
   user: 'gis_admin',
@@ -15,6 +16,9 @@ client.connect(function (err) {
 });
 
 const app = express();
+
+// Middleware to parse JSON request bodies
+app.use(express.json());
 
 // Serve static files from the 'public' directory
 app.use(express.static('public'));
@@ -51,7 +55,7 @@ app.get('/api/parks', async (req, res) => {
   }
 });
 
-// Route to fetch park boundaries as GeoJSON
+// Route to fetch park assets as GeoJSON
 app.get('/api/parkassets', async (req, res) => {
   try {
     const query = `
@@ -65,18 +69,18 @@ app.get('/api/parkassets', async (req, res) => {
           )
         )
       ) AS geojson
-      FROM (SELECT * FROM parkassets) row;
+      FROM (SELECT asset_id, name, geom FROM parkassets) row;
     `;
 
     const result = await client.query(query);
     res.json(result.rows[0].geojson);
-    //console.log(result)
   } catch (err) {
     console.error("Error fetching park assets:", err);
     res.status(500).send("Error fetching park assets");
   }
 });
 
+// Route to add a new park asset
 app.post('/api/parkassets', async (req, res) => {
   try {
     const { geometry, properties } = req.body;
@@ -87,17 +91,63 @@ app.post('/api/parkassets', async (req, res) => {
     }
 
     const query = `
-      INSERT INTO parkassets (geom, name)
-      VALUES (ST_SetSRID(ST_GeomFromGeoJSON($1), 4326), $2)
-      RETURNING id;
+      INSERT INTO parkassets (name, geom)
+      VALUES ($1, ST_SetSRID(ST_GeomFromGeoJSON($2), 4326))
+      RETURNING asset_id;
     `;
-    const values = [JSON.stringify(geometry), properties.name];
+    const values = [properties.name, JSON.stringify(geometry)];
     const result = await client.query(query, values);
 
-    res.json({ id: result.rows[0].id });
+    res.json({ asset_id: result.rows[0].asset_id });
   } catch (err) {
     console.error('Error creating feature:', err);
     res.status(500).send('Error creating feature');
+  }
+});
+
+// Route to update a park asset
+app.put('/api/parkassets', async (req, res) => {
+  try {
+    const { geometry, properties } = req.body;
+
+    // Ensure geometry and properties are provided
+    if (!geometry || !properties || !properties.asset_id || !properties.name) {
+      return res.status(400).send('Invalid GeoJSON: Missing geometry, properties, or asset_id');
+    }
+
+    const query = `
+      UPDATE parkassets
+      SET geom = ST_SetSRID(ST_GeomFromGeoJSON($1), 4326), name = $2
+      WHERE asset_id = $3;
+    `;
+    const values = [JSON.stringify(geometry), properties.name, properties.asset_id];
+    await client.query(query, values);
+
+    res.send('Feature updated');
+  } catch (err) {
+    console.error('Error updating feature:', err);
+    res.status(500).send('Error updating feature');
+  }
+});
+
+// Route to delete a park asset
+app.delete('/api/parkassets', async (req, res) => {
+  try {
+    const { asset_id } = req.body;
+
+    // Ensure asset_id is provided
+    if (!asset_id) {
+      return res.status(400).send('Invalid request: Missing asset_id');
+    }
+
+    const query = `DELETE FROM parkassets WHERE asset_id = $1;`;
+    const values = [asset_id];
+    await client.query(query, values);
+
+    res.send('Feature deleted');
+  } catch (err) {
+    console.error('Error deleting feature:', err);
+    res.status(500).send('Error deleting feature');
   }
 });
 
