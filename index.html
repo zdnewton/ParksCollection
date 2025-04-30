@@ -11,8 +11,11 @@
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-
-	<style>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+	
+    <style>
 		html, body {
 			height: 100%;
 			margin: 0;
@@ -51,9 +54,63 @@
     });
 
     baseMap.addTo(map);
+    // Feature group to store drawn features
+    const drawnItems = new L.FeatureGroup();
+    map.addLayer(drawnItems);
 
-    // Load and add Parks.geojson to the map
-    fetch('Parks.geojson')
+    // Add Leaflet Draw controls
+    const drawControl = new L.Control.Draw({
+        edit: {
+            featureGroup: drawnItems
+        },
+        draw: {
+            polygon: false,
+            polyline: false,
+            rectangle: false,
+            circle: false,
+            marker: true,
+            circlemarker: false
+        }
+    });
+    map.addControl(drawControl);
+
+    // Handle the creation of new features
+map.on('draw:created', function (e) {
+    const layer = e.layer;
+    const geojson = layer.toGeoJSON();
+
+    // Prompt the user for a name or other properties
+    const name = prompt("Enter a name for this marker:");
+    if (name) {
+        // Add the name as a property to the GeoJSON object
+        geojson.properties = {
+            name: name
+        };
+        console.log(geojson); // Log the GeoJSON to inspect it
+
+        // Add the new feature to the map
+        drawnItems.addLayer(layer);
+
+        // Send the new feature to the server
+        fetch('/api/parkassets', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(geojson)
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('Feature created:', data);
+        })
+        .catch(error => console.error('Error creating feature:', error));
+    } else {
+        alert("Marker creation canceled. No name provided.");
+    }
+});
+
+   // Load and add park boundaries from the database to the map
+    fetch('/api/parks')
         .then(response => response.json())
         .then(data => {
             L.geoJSON(data, {
@@ -61,37 +118,46 @@
                     return { color: "green", fillColor: "green", fillOpacity: 0.25 };
                 },
                 onEachFeature: function (feature, layer) {
-                    if (feature.properties && feature.properties.Name) {
-                        //layer.bindPopup(feature.properties.Name);
-                        layer.bindTooltip(feature.properties.Name, { 
+                    if (feature.properties && feature.properties.name) {
+                        layer.bindTooltip(feature.properties.name, { 
                             permanent: true, 
                             direction: "center", 
                             className: "no-background-tooltip" // Apply custom class
                         });
+                    }
                 }
-            }    
             }).addTo(map);
         })
-        .catch(error => console.error('Error loading GeoJSON:', error));
+        .catch(error => console.error('Error loading park boundaries:', error));
+
+        // Load and add park assets from the database to the map
+fetch('/api/parkassets')
+    .then(response => response.json())
+    .then(data => {
+        //console.log(data); // Log the data to inspect it
+        L.geoJSON(data, {
+            pointToLayer: function (feature, latlng) {
+                // Style park assets as red points
+                return L.circleMarker(latlng, {
+                    radius: 6,
+                    fillColor: "red",
+                    color: "red",
+                    weight: 1,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                });
+            },
+            onEachFeature: function (feature, layer) {
+                // Replace label with a popup
+                if (feature.properties && feature.properties.name) {
+                    layer.bindPopup(`<b>${feature.properties.name}</b>`);
+                }
+            }
+        }).addTo(map);
+    })
+    .catch(error => console.error('Error loading park assets:', error));
 
 
-	function onLocationFound(e) {
-		const radius = e.accuracy / 2;
-
-		const locationMarker = L.marker(e.latlng).addTo(map)
-			.bindPopup(`You are within ${radius} meters from this point`).openPopup();
-
-		const locationCircle = L.circle(e.latlng, radius).addTo(map);
-	}
-
-	function onLocationError(e) {
-		alert(e.message);
-	}
-
-	map.on('locationfound', onLocationFound);
-	map.on('locationerror', onLocationError);
-
-	map.locate({setView: true, maxZoom: 16});
 </script>
 
 
