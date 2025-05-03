@@ -5,7 +5,7 @@ const bodyParser = require('body-parser');
 
 const client = new Client({
   user: 'gis_admin',
-  host: 'aviation.crgjzahy3whh.us-east-1.rds.amazonaws.com',
+  host: 'park.crgjzahy3whh.us-east-1.rds.amazonaws.com',
   database: 'parks',
   password: 'gispass',
   port: 5432,
